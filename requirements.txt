@@ -3,3 +3,5 @@ pymysql
 
 python-dotenv
 python-dotenv
+pytest
+pytest-flask
