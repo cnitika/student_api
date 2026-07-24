@@ -20,7 +20,7 @@ def get_students():
 @app.route("/students", methods=["POST"])
 def create_student():
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True)
 
         if not data:
             return jsonify({"error": "No JSON body received"}), 400
