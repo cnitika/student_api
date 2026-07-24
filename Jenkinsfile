@@ -13,8 +13,7 @@ pipeline {
         }
         stage('Test') {
             steps {
-                sh 'pip install -r requirements.txt'
-                sh 'pytest tests/ -v'
+                sh 'docker run --rm student-api pytest tests/ -v'
             }
         }
         stage('Push to Docker Hub') {
