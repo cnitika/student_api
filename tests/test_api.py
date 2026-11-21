@@ -1,14 +1,15 @@
 """
 General and infrastructure API route tests.
-Replaced legacy stub-based tests from phase 1 with live tests for / and /health.
+Updated in Phase 3: "/" is now the academic performance dashboard page.
 """
 
 
 def test_home_route(client):
-    """Verify root greeting route."""
+    """Verify root route renders the academic dashboard HTML page."""
     response = client.get("/")
     assert response.status_code == 200
-    assert b"Student API is Running Successfully!" in response.data
+    assert "text/html" in response.content_type
+    assert b"Academic Performance Dashboard" in response.data
 
 
 def test_health_route(client):
@@ -20,22 +21,25 @@ def test_health_route(client):
     assert data["database"] == "connected"
 
 
-def test_legacy_students_route_empty(client):
-    """Verify legacy /students route returns 200 and list."""
-    response = client.get("/students")
-    assert response.status_code == 200
-    assert isinstance(response.get_json(), list)
-
-
-def test_404_handling(client):
-    """Verify 404 handler returns consistent JSON structure."""
-    response = client.get("/non-existent-route")
+def test_404_handling_api(client):
+    """Verify 404 handler for API routes returns consistent JSON."""
+    response = client.get("/api/non-existent-route")
     assert response.status_code == 404
+    assert response.is_json
     assert "error" in response.get_json()
 
 
+def test_404_handling_web(client):
+    """Verify 404 handler for browser routes renders friendly 404 HTML template."""
+    response = client.get("/non-existent-web-page")
+    assert response.status_code == 404
+    assert "text/html" in response.content_type
+    assert b"Page Not Found" in response.data
+
+
 def test_405_handling(client):
-    """Verify 405 handler returns consistent JSON structure."""
+    """Verify 405 handler returns consistent JSON structure for API endpoints."""
     response = client.post("/health")
     assert response.status_code == 405
+    assert response.is_json
     assert response.get_json()["error"] == "Method not allowed"
