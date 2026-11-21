@@ -165,8 +165,8 @@ def marks_entry_page(student_id):
 
     if request.method == "POST":
         # Form supports multi-row submission: subject_ids[], semesters[], marks_obtained[]
-        subject_ids = request.form.getlist("subject_ids[]")
-        semesters = request.form.getlist("semesters[]")
+        subject_ids = request.form.getlist("subject_ids[]") or request.form.getlist("subject_id[]")
+        semesters = request.form.getlist("semesters[]") or request.form.getlist("semesters") or request.form.getlist("semester[]")
         marks_obtained = request.form.getlist("marks_obtained[]")
 
         # If single field was submitted (fallback)
