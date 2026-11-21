@@ -1,26 +1,38 @@
-import re
 import logging
-from decimal import Decimal
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 from config import Config
 from db import get_db_cursor
-from services.results import calculate_academic_result
+from routes.web_routes import web_bp
+from services.student_service import (
+    list_students, get_student_by_id, create_student, update_student, delete_student
+)
+from services.subject_service import (
+    list_subjects, get_subject_by_id, create_subject, update_subject, delete_subject
+)
+from services.mark_service import (
+    get_student_marks, add_student_mark, update_mark, delete_mark, get_student_academic_result
+)
 
-# Configure logging
+# Configure standard logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 logger = logging.getLogger("student_api")
 
-EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-
 
 def create_app(config_class=None):
-    """Application factory for Flask app."""
+    """Application factory for the Student Marks Management System."""
     app = Flask(__name__)
     cfg = config_class or Config
     app.config.from_object(cfg)
+
+    # Validate SECRET_KEY in non-testing environments
+    if not app.config.get("SECRET_KEY") and not app.config.get("TESTING"):
+        raise RuntimeError("SECRET_KEY environment variable is missing. Please set SECRET_KEY in your .env file.")
+
+    # Register Web UI Blueprint
+    app.register_blueprint(web_bp)
 
     # -------------------------------------------------------------
     # Error Handlers
@@ -28,39 +40,47 @@ def create_app(config_class=None):
     @app.errorhandler(400)
     def bad_request(error):
         msg = getattr(error, "description", "Bad request")
-        return jsonify({"error": msg}), 400
+        if request.path.startswith("/api/") or request.path == "/health":
+            return jsonify({"error": msg}), 400
+        return render_template("404.html"), 400
 
     @app.errorhandler(404)
     def not_found(error):
         msg = getattr(error, "description", "Resource not found")
-        return jsonify({"error": msg}), 404
+        if request.path.startswith("/api/") or request.path == "/health":
+            return jsonify({"error": msg}), 404
+        return render_template("404.html"), 404
 
     @app.errorhandler(405)
     def method_not_allowed(error):
-        return jsonify({"error": "Method not allowed"}), 405
+        if request.path.startswith("/api/") or request.path == "/health":
+            return jsonify({"error": "Method not allowed"}), 405
+        return render_template("404.html"), 405
 
     @app.errorhandler(409)
     def conflict(error):
         msg = getattr(error, "description", "Conflict")
-        return jsonify({"error": msg}), 409
+        if request.path.startswith("/api/") or request.path == "/health":
+            return jsonify({"error": msg}), 409
+        return render_template("404.html"), 409
 
     @app.errorhandler(500)
     def internal_error(error):
-        logger.exception("Internal server error: %s", error)
-        return jsonify({"error": "An internal server error occurred"}), 500
+        logger.exception("Internal server error on %s: %s", request.path, error)
+        if request.path.startswith("/api/") or request.path == "/health":
+            return jsonify({"error": "An internal server error occurred"}), 500
+        return render_template("500.html"), 500
 
     @app.errorhandler(Exception)
     def handle_unexpected_exception(error):
-        logger.exception("Unhandled exception: %s", error)
-        return jsonify({"error": "An internal server error occurred"}), 500
+        logger.exception("Unhandled exception on %s: %s", request.path, error)
+        if request.path.startswith("/api/") or request.path == "/health":
+            return jsonify({"error": "An internal server error occurred"}), 500
+        return render_template("500.html"), 500
 
     # -------------------------------------------------------------
-    # General Routes
+    # System Health Check
     # -------------------------------------------------------------
-    @app.route("/")
-    def home():
-        return "Student API is Running Successfully!"
-
     @app.route("/health")
     def health():
         try:
@@ -78,545 +98,132 @@ def create_app(config_class=None):
                 "database": "disconnected"
             }), 503
 
-    # Legacy compatibility route (returns all students)
-    @app.route("/students", methods=["GET"])
-    def legacy_get_students():
-        with get_db_cursor(config_class=app.config) as cursor:
-            cursor.execute("SELECT * FROM students ORDER BY id ASC;")
-            students = cursor.fetchall()
-            return jsonify(students), 200
-
     # -------------------------------------------------------------
-    # Students API
+    # Students API (/api/students)
     # -------------------------------------------------------------
     @app.route("/api/students", methods=["GET"])
-    def list_students():
+    def api_list_students():
         q = request.args.get("q", "").strip()
-        with get_db_cursor(config_class=app.config) as cursor:
-            if q:
-                if q.isdigit():
-                    cursor.execute(
-                        """
-                        SELECT * FROM students
-                        WHERE id = %s OR roll_no = %s OR student_name LIKE %s
-                        ORDER BY id ASC;
-                        """,
-                        (int(q), q, f"%{q}%")
-                    )
-                else:
-                    cursor.execute(
-                        """
-                        SELECT * FROM students
-                        WHERE roll_no = %s OR student_name LIKE %s
-                        ORDER BY id ASC;
-                        """,
-                        (q, f"%{q}%")
-                    )
-            else:
-                cursor.execute("SELECT * FROM students ORDER BY id ASC;")
-            students = cursor.fetchall()
-            return jsonify(students), 200
+        students = list_students(app.config, q=q)
+        return jsonify(students), 200
 
     @app.route("/api/students", methods=["POST"])
-    def create_student():
+    def api_create_student():
         data = request.get_json(silent=True)
-        if data is None:
-            return jsonify({"error": "No JSON body received"}), 400
-
-        required_fields = [
-            "roll_no", "student_name", "email",
-            "department", "course", "academic_year", "semester"
-        ]
-        for field in required_fields:
-            if field not in data or data[field] is None or str(data[field]).strip() == "":
-                return jsonify({"error": f"'{field}' is required"}), 400
-
-        email = str(data["email"]).strip()
-        if not EMAIL_REGEX.match(email):
-            return jsonify({"error": "Invalid email format"}), 400
-
-        try:
-            semester = int(data["semester"])
-            if semester < 1 or semester > 12:
-                return jsonify({"error": "Semester must be an integer between 1 and 12"}), 400
-        except (ValueError, TypeError):
-            return jsonify({"error": "Semester must be a valid integer"}), 400
-
-        roll_no = str(data["roll_no"]).strip()
-        student_name = str(data["student_name"]).strip()
-        department = str(data["department"]).strip()
-        course = str(data["course"]).strip()
-        academic_year = str(data["academic_year"]).strip()
-
-        with get_db_cursor(commit=True, config_class=app.config) as cursor:
-            # Check roll_no or email duplicates
-            cursor.execute(
-                "SELECT id, roll_no, email FROM students WHERE roll_no = %s OR email = %s;",
-                (roll_no, email)
-            )
-            existing = cursor.fetchone()
-            if existing:
-                if existing["roll_no"] == roll_no:
-                    return jsonify({"error": f"Student with roll number '{roll_no}' already exists"}), 409
-                if existing["email"] == email:
-                    return jsonify({"error": f"Student with email '{email}' already exists"}), 409
-
-            cursor.execute(
-                """
-                INSERT INTO students (roll_no, student_name, email, department, course, academic_year, semester)
-                VALUES (%s, %s, %s, %s, %s, %s, %s);
-                """,
-                (roll_no, student_name, email, department, course, academic_year, semester)
-            )
-            student_id = cursor.lastrowid
-
-            cursor.execute("SELECT * FROM students WHERE id = %s;", (student_id,))
-            student = cursor.fetchone()
-            return jsonify(student), 201
+        student, error, status_code = create_student(app.config, data)
+        if error:
+            return jsonify({"error": error}), status_code
+        return jsonify(student), 201
 
     @app.route("/api/students/<int:student_id>", methods=["GET"])
-    def get_student(student_id):
-        with get_db_cursor(config_class=app.config) as cursor:
-            cursor.execute("SELECT * FROM students WHERE id = %s;", (student_id,))
-            student = cursor.fetchone()
-            if not student:
-                return jsonify({"error": f"Student with ID {student_id} not found"}), 404
-            return jsonify(student), 200
+    def api_get_student(student_id):
+        student = get_student_by_id(app.config, student_id)
+        if not student:
+            return jsonify({"error": f"Student with ID {student_id} not found"}), 404
+        return jsonify(student), 200
 
     @app.route("/api/students/<int:student_id>", methods=["PATCH"])
-    def update_student(student_id):
+    def api_update_student(student_id):
         data = request.get_json(silent=True)
-        if data is None:
-            return jsonify({"error": "No JSON body received"}), 400
-
-        allowed_fields = [
-            "roll_no", "student_name", "email",
-            "department", "course", "academic_year", "semester"
-        ]
-        updates = {}
-        for f in allowed_fields:
-            if f in data:
-                updates[f] = data[f]
-
-        if not updates:
-            return jsonify({"error": "No valid fields provided for update"}), 400
-
-        if "email" in updates:
-            email = str(updates["email"]).strip()
-            if not EMAIL_REGEX.match(email):
-                return jsonify({"error": "Invalid email format"}), 400
-            updates["email"] = email
-
-        if "semester" in updates:
-            try:
-                sem = int(updates["semester"])
-                if sem < 1 or sem > 12:
-                    return jsonify({"error": "Semester must be an integer between 1 and 12"}), 400
-                updates["semester"] = sem
-            except (ValueError, TypeError):
-                return jsonify({"error": "Semester must be a valid integer"}), 400
-
-        with get_db_cursor(commit=True, config_class=app.config) as cursor:
-            cursor.execute("SELECT * FROM students WHERE id = %s;", (student_id,))
-            student = cursor.fetchone()
-            if not student:
-                return jsonify({"error": f"Student with ID {student_id} not found"}), 404
-
-            # Duplicate roll_no or email check for other students
-            if "roll_no" in updates and updates["roll_no"] != student["roll_no"]:
-                cursor.execute(
-                    "SELECT id FROM students WHERE roll_no = %s AND id != %s;",
-                    (updates["roll_no"], student_id)
-                )
-                if cursor.fetchone():
-                    return jsonify({"error": f"Roll number '{updates['roll_no']}' is already in use"}), 409
-
-            if "email" in updates and updates["email"] != student["email"]:
-                cursor.execute(
-                    "SELECT id FROM students WHERE email = %s AND id != %s;",
-                    (updates["email"], student_id)
-                )
-                if cursor.fetchone():
-                    return jsonify({"error": f"Email '{updates['email']}' is already in use"}), 409
-
-            set_clauses = [f"{k} = %s" for k in updates.keys()]
-            values = list(updates.values())
-            values.append(student_id)
-
-            sql = f"UPDATE students SET {', '.join(set_clauses)} WHERE id = %s;"
-            cursor.execute(sql, tuple(values))
-
-            cursor.execute("SELECT * FROM students WHERE id = %s;", (student_id,))
-            updated_student = cursor.fetchone()
-            return jsonify(updated_student), 200
+        student, error, status_code = update_student(app.config, student_id, data)
+        if error:
+            return jsonify({"error": error}), status_code
+        return jsonify(student), 200
 
     @app.route("/api/students/<int:student_id>", methods=["DELETE"])
-    def delete_student(student_id):
-        with get_db_cursor(commit=True, config_class=app.config) as cursor:
-            cursor.execute("SELECT id FROM students WHERE id = %s;", (student_id,))
-            if not cursor.fetchone():
-                return jsonify({"error": f"Student with ID {student_id} not found"}), 404
-
-            cursor.execute("DELETE FROM students WHERE id = %s;", (student_id,))
-            return "", 204
+    def api_delete_student(student_id):
+        success, error, status_code = delete_student(app.config, student_id)
+        if not success:
+            return jsonify({"error": error}), status_code
+        return "", 204
 
     # -------------------------------------------------------------
-    # Subjects API
+    # Subjects API (/api/subjects)
     # -------------------------------------------------------------
     @app.route("/api/subjects", methods=["GET"])
-    def list_subjects():
-        with get_db_cursor(config_class=app.config) as cursor:
-            cursor.execute("SELECT * FROM subjects ORDER BY id ASC;")
-            subjects = cursor.fetchall()
-            return jsonify(subjects), 200
+    def api_list_subjects():
+        subjects = list_subjects(app.config)
+        return jsonify(subjects), 200
 
     @app.route("/api/subjects", methods=["POST"])
-    def create_subject():
+    def api_create_subject():
         data = request.get_json(silent=True)
-        if data is None:
-            return jsonify({"error": "No JSON body received"}), 400
-
-        required = ["subject_code", "subject_name", "max_marks"]
-        for f in required:
-            if f not in data or data[f] is None or str(data[f]).strip() == "":
-                return jsonify({"error": f"'{f}' is required"}), 400
-
-        code = str(data["subject_code"]).strip()
-        name = str(data["subject_name"]).strip()
-
-        try:
-            max_marks = Decimal(str(data["max_marks"]))
-            if max_marks <= Decimal("0"):
-                return jsonify({"error": "max_marks must be greater than 0"}), 400
-        except Exception:
-            return jsonify({"error": "max_marks must be a valid positive number"}), 400
-
-        with get_db_cursor(commit=True, config_class=app.config) as cursor:
-            cursor.execute("SELECT id FROM subjects WHERE subject_code = %s;", (code,))
-            if cursor.fetchone():
-                return jsonify({"error": f"Subject code '{code}' already exists"}), 409
-
-            cursor.execute(
-                "INSERT INTO subjects (subject_code, subject_name, max_marks) VALUES (%s, %s, %s);",
-                (code, name, float(max_marks))
-            )
-            sub_id = cursor.lastrowid
-
-            cursor.execute("SELECT * FROM subjects WHERE id = %s;", (sub_id,))
-            subject = cursor.fetchone()
-            return jsonify(subject), 201
+        subject, error, status_code = create_subject(app.config, data)
+        if error:
+            return jsonify({"error": error}), status_code
+        return jsonify(subject), 201
 
     @app.route("/api/subjects/<int:subject_id>", methods=["GET"])
-    def get_subject(subject_id):
-        with get_db_cursor(config_class=app.config) as cursor:
-            cursor.execute("SELECT * FROM subjects WHERE id = %s;", (subject_id,))
-            sub = cursor.fetchone()
-            if not sub:
-                return jsonify({"error": f"Subject with ID {subject_id} not found"}), 404
-            return jsonify(sub), 200
+    def api_get_subject(subject_id):
+        subject = get_subject_by_id(app.config, subject_id)
+        if not subject:
+            return jsonify({"error": f"Subject with ID {subject_id} not found"}), 404
+        return jsonify(subject), 200
 
     @app.route("/api/subjects/<int:subject_id>", methods=["PATCH"])
-    def update_subject(subject_id):
+    def api_update_subject(subject_id):
         data = request.get_json(silent=True)
-        if data is None:
-            return jsonify({"error": "No JSON body received"}), 400
-
-        allowed = ["subject_code", "subject_name", "max_marks"]
-        updates = {k: data[k] for k in allowed if k in data}
-        if not updates:
-            return jsonify({"error": "No valid fields provided for update"}), 400
-
-        with get_db_cursor(commit=True, config_class=app.config) as cursor:
-            cursor.execute("SELECT * FROM subjects WHERE id = %s;", (subject_id,))
-            subject = cursor.fetchone()
-            if not subject:
-                return jsonify({"error": f"Subject with ID {subject_id} not found"}), 404
-
-            if "subject_code" in updates:
-                new_code = str(updates["subject_code"]).strip()
-                if new_code != subject["subject_code"]:
-                    cursor.execute("SELECT id FROM subjects WHERE subject_code = %s AND id != %s;", (new_code, subject_id))
-                    if cursor.fetchone():
-                        return jsonify({"error": f"Subject code '{new_code}' already exists"}), 409
-                updates["subject_code"] = new_code
-
-            if "max_marks" in updates:
-                try:
-                    new_max = Decimal(str(updates["max_marks"]))
-                    if new_max <= Decimal("0"):
-                        return jsonify({"error": "max_marks must be greater than 0"}), 400
-                    # Validate that no existing student marks exceed this new max_marks
-                    cursor.execute("SELECT MAX(marks_obtained) as highest FROM marks WHERE subject_id = %s;", (subject_id,))
-                    highest = cursor.fetchone()["highest"]
-                    if highest is not None and Decimal(str(highest)) > new_max:
-                        return jsonify({"error": f"Cannot set max_marks to {new_max} because existing marks obtained is {highest}"}), 400
-                    updates["max_marks"] = float(new_max)
-                except Exception:
-                    return jsonify({"error": "max_marks must be a valid positive number"}), 400
-
-            set_clauses = [f"{k} = %s" for k in updates.keys()]
-            values = list(updates.values())
-            values.append(subject_id)
-
-            sql = f"UPDATE subjects SET {', '.join(set_clauses)} WHERE id = %s;"
-            cursor.execute(sql, tuple(values))
-
-            cursor.execute("SELECT * FROM subjects WHERE id = %s;", (subject_id,))
-            updated_sub = cursor.fetchone()
-            return jsonify(updated_sub), 200
+        subject, error, status_code = update_subject(app.config, subject_id, data)
+        if error:
+            return jsonify({"error": error}), status_code
+        return jsonify(subject), 200
 
     @app.route("/api/subjects/<int:subject_id>", methods=["DELETE"])
-    def delete_subject(subject_id):
-        with get_db_cursor(commit=True, config_class=app.config) as cursor:
-            cursor.execute("SELECT id FROM subjects WHERE id = %s;", (subject_id,))
-            if not cursor.fetchone():
-                return jsonify({"error": f"Subject with ID {subject_id} not found"}), 404
-
-            # Check if any marks reference this subject
-            cursor.execute("SELECT COUNT(*) as count FROM marks WHERE subject_id = %s;", (subject_id,))
-            count = cursor.fetchone()["count"]
-            if count > 0:
-                return jsonify({"error": "Cannot delete subject because student marks reference it"}), 409
-
-            cursor.execute("DELETE FROM subjects WHERE id = %s;", (subject_id,))
-            return "", 204
+    def api_delete_subject(subject_id):
+        success, error, status_code = delete_subject(app.config, subject_id)
+        if not success:
+            return jsonify({"error": error}), status_code
+        return "", 204
 
     # -------------------------------------------------------------
-    # Marks API
+    # Marks API (/api/students/<id>/marks & /api/marks/<id>)
     # -------------------------------------------------------------
     @app.route("/api/students/<int:student_id>/marks", methods=["GET"])
-    def get_student_marks(student_id):
+    def api_get_student_marks(student_id):
         sem = request.args.get("semester", type=int)
-        with get_db_cursor(config_class=app.config) as cursor:
-            cursor.execute("SELECT id FROM students WHERE id = %s;", (student_id,))
-            if not cursor.fetchone():
-                return jsonify({"error": f"Student with ID {student_id} not found"}), 404
-
-            if sem is not None:
-                cursor.execute(
-                    """
-                    SELECT m.id, m.student_id, m.subject_id, m.semester, m.marks_obtained,
-                           s.subject_code, s.subject_name, s.max_marks, m.created_at, m.updated_at
-                    FROM marks m
-                    JOIN subjects s ON m.subject_id = s.id
-                    WHERE m.student_id = %s AND m.semester = %s
-                    ORDER BY s.subject_code ASC;
-                    """,
-                    (student_id, sem)
-                )
-            else:
-                cursor.execute(
-                    """
-                    SELECT m.id, m.student_id, m.subject_id, m.semester, m.marks_obtained,
-                           s.subject_code, s.subject_name, s.max_marks, m.created_at, m.updated_at
-                    FROM marks m
-                    JOIN subjects s ON m.subject_id = s.id
-                    WHERE m.student_id = %s
-                    ORDER BY m.semester ASC, s.subject_code ASC;
-                    """,
-                    (student_id,)
-                )
-            marks = cursor.fetchall()
-            for m in marks:
-                if "marks_obtained" in m and m["marks_obtained"] is not None:
-                    m["marks_obtained"] = float(m["marks_obtained"])
-                if "max_marks" in m and m["max_marks"] is not None:
-                    m["max_marks"] = float(m["max_marks"])
-            return jsonify(marks), 200
+        marks, error, status_code = get_student_marks(app.config, student_id, semester=sem)
+        if error:
+            return jsonify({"error": error}), status_code
+        return jsonify(marks), 200
 
     @app.route("/api/students/<int:student_id>/marks", methods=["POST"])
-    def add_student_mark(student_id):
+    def api_add_student_mark(student_id):
         data = request.get_json(silent=True)
-        if data is None:
-            return jsonify({"error": "No JSON body received"}), 400
-
-        if "subject_id" not in data or data["subject_id"] is None:
-            return jsonify({"error": "'subject_id' is required"}), 400
-        if "marks_obtained" not in data or data["marks_obtained"] is None:
-            return jsonify({"error": "'marks_obtained' is required"}), 400
-
-        try:
-            subject_id = int(data["subject_id"])
-        except (ValueError, TypeError):
-            return jsonify({"error": "'subject_id' must be an integer"}), 400
-
-        try:
-            marks_obtained = Decimal(str(data["marks_obtained"]))
-            if marks_obtained < Decimal("0"):
-                return jsonify({"error": "marks_obtained cannot be negative"}), 400
-        except Exception:
-            return jsonify({"error": "marks_obtained must be a valid numeric value"}), 400
-
-        with get_db_cursor(commit=True, config_class=app.config) as cursor:
-            cursor.execute("SELECT id, semester FROM students WHERE id = %s;", (student_id,))
-            student = cursor.fetchone()
-            if not student:
-                return jsonify({"error": f"Student with ID {student_id} not found"}), 404
-
-            # Default semester to student's registered semester if omitted
-            if "semester" in data and data["semester"] is not None:
-                try:
-                    semester = int(data["semester"])
-                    if semester < 1 or semester > 12:
-                        return jsonify({"error": "Semester must be between 1 and 12"}), 400
-                except (ValueError, TypeError):
-                    return jsonify({"error": "Semester must be a valid integer"}), 400
-            else:
-                semester = student["semester"]
-
-            cursor.execute("SELECT id, subject_code, subject_name, max_marks FROM subjects WHERE id = %s;", (subject_id,))
-            subject = cursor.fetchone()
-            if not subject:
-                return jsonify({"error": f"Subject with ID {subject_id} not found"}), 404
-
-            max_marks = Decimal(str(subject["max_marks"]))
-            if marks_obtained > max_marks:
-                return jsonify({
-                    "error": f"Marks obtained ({marks_obtained}) cannot exceed subject maximum marks ({max_marks})"
-                }), 400
-
-            # Duplicate mark check
-            cursor.execute(
-                """
-                SELECT id FROM marks
-                WHERE student_id = %s AND subject_id = %s AND semester = %s;
-                """,
-                (student_id, subject_id, semester)
-            )
-            if cursor.fetchone():
-                return jsonify({
-                    "error": f"Marks already exist for subject '{subject['subject_code']}' in semester {semester}"
-                }), 409
-
-            cursor.execute(
-                """
-                INSERT INTO marks (student_id, subject_id, semester, marks_obtained)
-                VALUES (%s, %s, %s, %s);
-                """,
-                (student_id, subject_id, semester, float(marks_obtained))
-            )
-            mark_id = cursor.lastrowid
-
-            cursor.execute(
-                """
-                SELECT m.id, m.student_id, m.subject_id, m.semester, m.marks_obtained,
-                       s.subject_code, s.subject_name, s.max_marks, m.created_at
-                FROM marks m
-                JOIN subjects s ON m.subject_id = s.id
-                WHERE m.id = %s;
-                """,
-                (mark_id,)
-            )
-            created_mark = cursor.fetchone()
-            if created_mark:
-                created_mark["marks_obtained"] = float(created_mark["marks_obtained"])
-                created_mark["max_marks"] = float(created_mark["max_marks"])
-            return jsonify(created_mark), 201
+        mark, error, status_code = add_student_mark(app.config, student_id, data)
+        if error:
+            return jsonify({"error": error}), status_code
+        return jsonify(mark), 201
 
     @app.route("/api/marks/<int:mark_id>", methods=["PATCH"])
-    def update_mark(mark_id):
+    def api_update_mark(mark_id):
         data = request.get_json(silent=True)
-        if not data or "marks_obtained" not in data or data["marks_obtained"] is None:
-            return jsonify({"error": "'marks_obtained' is required in body"}), 400
-
-        try:
-            new_marks = Decimal(str(data["marks_obtained"]))
-            if new_marks < Decimal("0"):
-                return jsonify({"error": "marks_obtained cannot be negative"}), 400
-        except Exception:
-            return jsonify({"error": "marks_obtained must be a valid numeric value"}), 400
-
-        with get_db_cursor(commit=True, config_class=app.config) as cursor:
-            cursor.execute(
-                """
-                SELECT m.id, m.marks_obtained, s.max_marks
-                FROM marks m
-                JOIN subjects s ON m.subject_id = s.id
-                WHERE m.id = %s;
-                """,
-                (mark_id,)
-            )
-            mark = cursor.fetchone()
-            if not mark:
-                return jsonify({"error": f"Mark record with ID {mark_id} not found"}), 404
-
-            max_marks = Decimal(str(mark["max_marks"]))
-            if new_marks > max_marks:
-                return jsonify({
-                    "error": f"Marks obtained ({new_marks}) cannot exceed maximum marks ({max_marks})"
-                }), 400
-
-            cursor.execute(
-                "UPDATE marks SET marks_obtained = %s WHERE id = %s;",
-                (float(new_marks), mark_id)
-            )
-
-            cursor.execute(
-                """
-                SELECT m.id, m.student_id, m.subject_id, m.semester, m.marks_obtained,
-                       s.subject_code, s.subject_name, s.max_marks, m.updated_at
-                FROM marks m
-                JOIN subjects s ON m.subject_id = s.id
-                WHERE m.id = %s;
-                """,
-                (mark_id,)
-            )
-            updated = cursor.fetchone()
-            if updated:
-                updated["marks_obtained"] = float(updated["marks_obtained"])
-                updated["max_marks"] = float(updated["max_marks"])
-            return jsonify(updated), 200
+        mark, error, status_code = update_mark(app.config, mark_id, data)
+        if error:
+            return jsonify({"error": error}), status_code
+        return jsonify(mark), 200
 
     @app.route("/api/marks/<int:mark_id>", methods=["DELETE"])
-    def delete_mark(mark_id):
-        with get_db_cursor(commit=True, config_class=app.config) as cursor:
-            cursor.execute("SELECT id FROM marks WHERE id = %s;", (mark_id,))
-            if not cursor.fetchone():
-                return jsonify({"error": f"Mark record with ID {mark_id} not found"}), 404
-
-            cursor.execute("DELETE FROM marks WHERE id = %s;", (mark_id,))
-            return "", 204
+    def api_delete_mark(mark_id):
+        success, error, status_code = delete_mark(app.config, mark_id)
+        if not success:
+            return jsonify({"error": error}), status_code
+        return "", 204
 
     # -------------------------------------------------------------
-    # Academic Result API
+    # Academic Result API (/api/students/<id>/result)
     # -------------------------------------------------------------
     @app.route("/api/students/<int:student_id>/result", methods=["GET"])
-    def get_student_result(student_id):
+    def api_get_student_result(student_id):
         sem = request.args.get("semester", type=int)
-
-        with get_db_cursor(config_class=app.config) as cursor:
-            cursor.execute("SELECT * FROM students WHERE id = %s;", (student_id,))
-            student = cursor.fetchone()
-            if not student:
-                return jsonify({"error": f"Student with ID {student_id} not found"}), 404
-
-            target_sem = sem if sem is not None else student["semester"]
-
-            cursor.execute(
-                """
-                SELECT s.subject_code, s.subject_name, s.max_marks, m.marks_obtained
-                FROM marks m
-                JOIN subjects s ON m.subject_id = s.id
-                WHERE m.student_id = %s AND m.semester = %s
-                ORDER BY s.subject_code ASC;
-                """,
-                (student_id, target_sem)
-            )
-            records = cursor.fetchall()
-
-            result = calculate_academic_result(
-                student_info=student,
-                marks_records=records,
-                pass_threshold=app.config.get("PASS_THRESHOLD_PERCENT", Decimal("35.00")),
-                grade_scale=app.config.get("GRADE_SCALE"),
-                semester=target_sem
-            )
-            return jsonify(result), 200
+        result, error, status_code = get_student_academic_result(app.config, student_id, semester=sem)
+        if error:
+            return jsonify({"error": error}), status_code
+        return jsonify(result), 200
 
     return app
 
 
-# Default application instance for development / WSGI
+# Default application instance
 app = create_app()
 
 if __name__ == "__main__":
