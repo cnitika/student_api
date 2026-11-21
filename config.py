@@ -2,8 +2,9 @@ import os
 from decimal import Decimal
 from dotenv import load_dotenv
 
-# Load .env file
-load_dotenv()
+# Load .env file from the repository directory
+basedir = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(basedir, ".env"))
 
 
 class Config:
