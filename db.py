@@ -4,21 +4,35 @@ from contextlib import contextmanager
 from config import Config
 
 
+def _get_val(cfg, key, default=None):
+    """Safely extract setting from class, dict, or Flask config object."""
+    if hasattr(cfg, "get"):
+        val = cfg.get(key)
+        if val is not None:
+            return val
+    return getattr(cfg, key, default)
+
+
 def get_connection(config_class=None, database=None):
     """
     Establish a connection to the MySQL database.
     Config-driven with support for custom configuration and database overriding.
     """
     cfg = config_class or Config
-    db_name = database or cfg.DB_NAME
+    db_name = database or _get_val(cfg, "DB_NAME", "student_db")
+    host = _get_val(cfg, "DB_HOST", "127.0.0.1")
+    port = int(_get_val(cfg, "DB_PORT", 3306))
+    user = _get_val(cfg, "DB_USER", "student_app")
+    password = _get_val(cfg, "DB_PASSWORD", "")
+    timeout = int(_get_val(cfg, "DB_CONNECT_TIMEOUT", 5))
 
     return pymysql.connect(
-        host=cfg.DB_HOST,
-        port=cfg.DB_PORT,
-        user=cfg.DB_USER,
-        password=cfg.DB_PASSWORD,
+        host=host,
+        port=port,
+        user=user,
+        password=password,
         database=db_name,
-        connect_timeout=cfg.DB_CONNECT_TIMEOUT,
+        connect_timeout=timeout,
         charset="utf8mb4",
         cursorclass=pymysql.cursors.DictCursor
     )

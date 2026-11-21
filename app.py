@@ -120,7 +120,7 @@ def create_app(config_class=None):
     @app.route("/api/students", methods=["POST"])
     def create_student():
         data = request.get_json(silent=True)
-        if not data:
+        if data is None:
             return jsonify({"error": "No JSON body received"}), 400
 
         required_fields = [
@@ -186,7 +186,7 @@ def create_app(config_class=None):
     @app.route("/api/students/<int:student_id>", methods=["PATCH"])
     def update_student(student_id):
         data = request.get_json(silent=True)
-        if not data:
+        if data is None:
             return jsonify({"error": "No JSON body received"}), 400
 
         allowed_fields = [
@@ -273,7 +273,7 @@ def create_app(config_class=None):
     @app.route("/api/subjects", methods=["POST"])
     def create_subject():
         data = request.get_json(silent=True)
-        if not data:
+        if data is None:
             return jsonify({"error": "No JSON body received"}), 400
 
         required = ["subject_code", "subject_name", "max_marks"]
@@ -318,7 +318,7 @@ def create_app(config_class=None):
     @app.route("/api/subjects/<int:subject_id>", methods=["PATCH"])
     def update_subject(subject_id):
         data = request.get_json(silent=True)
-        if not data:
+        if data is None:
             return jsonify({"error": "No JSON body received"}), 400
 
         allowed = ["subject_code", "subject_name", "max_marks"]
@@ -417,12 +417,17 @@ def create_app(config_class=None):
                     (student_id,)
                 )
             marks = cursor.fetchall()
+            for m in marks:
+                if "marks_obtained" in m and m["marks_obtained"] is not None:
+                    m["marks_obtained"] = float(m["marks_obtained"])
+                if "max_marks" in m and m["max_marks"] is not None:
+                    m["max_marks"] = float(m["max_marks"])
             return jsonify(marks), 200
 
     @app.route("/api/students/<int:student_id>/marks", methods=["POST"])
     def add_student_mark(student_id):
         data = request.get_json(silent=True)
-        if not data:
+        if data is None:
             return jsonify({"error": "No JSON body received"}), 400
 
         if "subject_id" not in data or data["subject_id"] is None:
@@ -480,7 +485,7 @@ def create_app(config_class=None):
             )
             if cursor.fetchone():
                 return jsonify({
-                    "error": f"Marks already recorded for subject '{subject['subject_code']}' in semester {semester}"
+                    "error": f"Marks already exist for subject '{subject['subject_code']}' in semester {semester}"
                 }), 409
 
             cursor.execute(
@@ -503,6 +508,9 @@ def create_app(config_class=None):
                 (mark_id,)
             )
             created_mark = cursor.fetchone()
+            if created_mark:
+                created_mark["marks_obtained"] = float(created_mark["marks_obtained"])
+                created_mark["max_marks"] = float(created_mark["max_marks"])
             return jsonify(created_mark), 201
 
     @app.route("/api/marks/<int:mark_id>", methods=["PATCH"])
@@ -554,6 +562,9 @@ def create_app(config_class=None):
                 (mark_id,)
             )
             updated = cursor.fetchone()
+            if updated:
+                updated["marks_obtained"] = float(updated["marks_obtained"])
+                updated["max_marks"] = float(updated["max_marks"])
             return jsonify(updated), 200
 
     @app.route("/api/marks/<int:mark_id>", methods=["DELETE"])

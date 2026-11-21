@@ -1,80 +1,41 @@
-import pytest
-from unittest.mock import patch, MagicMock
-from app import app
-
-
-@pytest.fixture
-def client():
-    app.config['TESTING'] = True
-    with app.test_client() as client:
-        yield client
+"""
+General and infrastructure API route tests.
+Replaced legacy stub-based tests from phase 1 with live tests for / and /health.
+"""
 
 
 def test_home_route(client):
-    response = client.get('/')
+    """Verify root greeting route."""
+    response = client.get("/")
     assert response.status_code == 200
     assert b"Student API is Running Successfully!" in response.data
 
 
-def test_get_students(client):
-    response = client.get('/students')
+def test_health_route(client):
+    """Verify health endpoint pings real database successfully."""
+    response = client.get("/health")
     assert response.status_code == 200
-    assert response.get_json()["message"] == "Students route works"
+    data = response.get_json()
+    assert data["status"] == "healthy"
+    assert data["database"] == "connected"
 
 
-def test_create_student_missing_fields(client):
-    response = client.post('/students', json={"name": "John"})
-    assert response.status_code == 400
+def test_legacy_students_route_empty(client):
+    """Verify legacy /students route returns 200 and list."""
+    response = client.get("/students")
+    assert response.status_code == 200
+    assert isinstance(response.get_json(), list)
+
+
+def test_404_handling(client):
+    """Verify 404 handler returns consistent JSON structure."""
+    response = client.get("/non-existent-route")
+    assert response.status_code == 404
     assert "error" in response.get_json()
 
 
-def test_create_student_no_body(client):
-    response = client.post('/students')
-    assert response.status_code == 400
-
-
-@patch('app.get_connection')
-def test_create_student_success(mock_get_connection, client):
-    mock_conn = MagicMock()
-    mock_cursor = MagicMock()
-    mock_cursor.lastrowid = 1
-    mock_conn.cursor.return_value = mock_cursor
-    mock_get_connection.return_value = mock_conn
-
-    response = client.post('/students', json={
-        "name": "John Doe",
-        "email": "john@example.com",
-        "course": "CS"
-    })
-    assert response.status_code == 201
-    data = response.get_json()
-    assert data["name"] == "John Doe"
-    assert data["email"] == "john@example.com"
-
-
-@patch('app.get_connection')
-def test_update_student(mock_get_connection, client):
-    mock_conn = MagicMock()
-    mock_cursor = MagicMock()
-    mock_conn.cursor.return_value = mock_cursor
-    mock_get_connection.return_value = mock_conn
-
-    response = client.patch('/students/1', json={"course": "Math"})
-    assert response.status_code == 200
-    assert response.get_json()["message"] == "Student updated successfully"
-
-
-def test_update_student_missing_course(client):
-    response = client.patch('/students/1', json={})
-    assert response.status_code == 400
-
-
-@patch('app.get_connection')
-def test_delete_student(mock_get_connection, client):
-    mock_conn = MagicMock()
-    mock_cursor = MagicMock()
-    mock_conn.cursor.return_value = mock_cursor
-    mock_get_connection.return_value = mock_conn
-
-    response = client.delete('/students/1')
-    assert response.status_code == 204
+def test_405_handling(client):
+    """Verify 405 handler returns consistent JSON structure."""
+    response = client.post("/health")
+    assert response.status_code == 405
+    assert response.get_json()["error"] == "Method not allowed"
