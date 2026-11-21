@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block title %}Students Directory - Student Marks Management System{% endblock %}
+{% block page_heading %}Students Directory{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header" style="flex-wrap: wrap; gap: 16px;">
+        <!-- Search Box -->
+        <form action="{{ url_for('web.students_list') }}" method="GET" class="search-bar">
+            <input type="text" name="q" value="{{ search_query or '' }}" placeholder="Search by name, roll no, or ID..." class="form-input" aria-label="Search students">
+            <button type="submit" class="btn btn-secondary">Search</button>
+            {% if search_query %}
+                <a href="{{ url_for('web.students_list') }}" class="btn btn-secondary">Clear</a>
+            {% endif %}
+        </form>
+
+        <a href="{{ url_for('web.add_student_page') }}" class="btn btn-primary">+ Add New Student</a>
+    </div>
+
+    {% if students %}
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Roll No</th>
+                        <th>Student Name</th>
+                        <th>Email</th>
+                        <th>Department</th>
+                        <th>Course</th>
+                        <th>Academic Year</th>
+                        <th>Semester</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for student in students %}
+                        <tr>
+                            <td>{{ student.id }}</td>
+                            <td><strong>{{ student.roll_no }}</strong></td>
+                            <td>{{ student.student_name }}</td>
+                            <td>{{ student.email }}</td>
+                            <td>{{ student.department }}</td>
+                            <td>{{ student.course }}</td>
+                            <td>{{ student.academic_year }}</td>
+                            <td>Sem {{ student.semester }}</td>
+                            <td style="white-space: nowrap;">
+                                <a href="{{ url_for('web.student_marks_page', student_id=student.id) }}" class="btn btn-secondary btn-sm" title="View & Manage Marks">Marks</a>
+                                <a href="{{ url_for('web.student_result_page', student_id=student.id) }}" class="btn btn-secondary btn-sm" title="View Academic Result">Result</a>
+                                <a href="{{ url_for('web.edit_student_page', student_id=student.id) }}" class="btn btn-secondary btn-sm" title="Edit Student">Edit</a>
+                                <form action="{{ url_for('web.delete_student_action', student_id=student.id) }}" method="POST" class="delete-form" data-item-name="{{ student.student_name }}" style="display: inline-block;">
+                                    <button type="submit" class="btn btn-danger btn-sm" title="Delete Student">Delete</button>
+                                </form>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <div class="empty-state">
+            {% if search_query %}
+                <p>No students found matching "<strong>{{ search_query }}</strong>".</p>
+                <p style="margin-top: 8px;"><a href="{{ url_for('web.students_list') }}" class="btn btn-secondary btn-sm">Clear Search Filter</a></p>
+            {% else %}
+                <p>No students currently registered in the database.</p>
+                <p style="margin-top: 8px;"><a href="{{ url_for('web.add_student_page') }}" class="btn btn-primary btn-sm">Add First Student</a></p>
+            {% endif %}
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

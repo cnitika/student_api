@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}Marks Overview - {{ student.student_name }}{% endblock %}
+{% block page_heading %}Academic Marks Overview: {{ student.student_name }}{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Student Profile</h2>
+        <div style="display: flex; gap: 8px;">
+            <a href="{{ url_for('web.marks_entry_page', student_id=student.id) }}" class="btn btn-primary btn-sm">+ Enter / Add Marks</a>
+            <a href="{{ url_for('web.student_result_page', student_id=student.id) }}" class="btn btn-secondary btn-sm">View Result Sheet</a>
+            <a href="{{ url_for('web.students_list') }}" class="btn btn-secondary btn-sm">Back to Students</a>
+        </div>
+    </div>
+    <div class="result-meta-grid">
+        <div class="meta-item">
+            <div class="meta-label">Roll Number</div>
+            <div class="meta-value">{{ student.roll_no }}</div>
+        </div>
+        <div class="meta-item">
+            <div class="meta-label">Department</div>
+            <div class="meta-value">{{ student.department }}</div>
+        </div>
+        <div class="meta-item">
+            <div class="meta-label">Course Degree</div>
+            <div class="meta-value">{{ student.course }}</div>
+        </div>
+        <div class="meta-item">
+            <div class="meta-label">Current Semester</div>
+            <div class="meta-value">Semester {{ student.semester }}</div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Subject Marks Record</h2>
+        <form action="{{ url_for('web.student_marks_page', student_id=student.id) }}" method="GET" style="display: flex; gap: 8px; align-items: center;">
+            <label for="filter_sem" style="font-size: 13px; color: var(--text-muted);">Semester:</label>
+            <input type="number" id="filter_sem" name="semester" value="{{ selected_semester or student.semester }}" min="1" max="12" class="form-input" style="width: 70px; padding: 4px 8px;">
+            <button type="submit" class="btn btn-secondary btn-sm">Filter</button>
+        </form>
+    </div>
+
+    {% if marks %}
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Subject Code</th>
+                        <th>Subject Name</th>
+                        <th>Semester</th>
+                        <th>Max Marks</th>
+                        <th>Marks Obtained</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for m in marks %}
+                        <tr>
+                            <td><strong>{{ m.subject_code }}</strong></td>
+                            <td>{{ m.subject_name }}</td>
+                            <td>Sem {{ m.semester }}</td>
+                            <td>{{ m.max_marks }}</td>
+                            <td><strong>{{ m.marks_obtained }}</strong></td>
+                            <td>
+                                <form action="{{ url_for('web.delete_mark_action', mark_id=m.id, student_id=student.id) }}" method="POST" class="delete-form" data-item-name="{{ m.subject_code }} marks" style="display: inline-block;">
+                                    <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                                </form>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <div class="empty-state">
+            <p>No marks recorded for this semester.</p>
+            <p style="margin-top: 8px;">
+                <a href="{{ url_for('web.marks_entry_page', student_id=student.id) }}" class="btn btn-primary btn-sm">Enter Marks Now</a>
+            </p>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+
+{% block title %}500 - Internal Server Error{% endblock %}
+{% block page_heading %}Server Error{% endblock %}
+
+{% block content %}
+<div class="card" style="text-align: center; padding: 60px 20px; max-width: 600px; margin: 40px auto;">
+    <h2 style="font-size: 48px; color: var(--danger-badge); margin-bottom: 16px;">500</h2>
+    <h3 style="font-size: 20px; margin-bottom: 12px;">An internal error occurred.</h3>
+    <p style="color: var(--text-secondary); margin-bottom: 24px;">Our engineering system has logged this incident. Please try again or return to the dashboard.</p>
+    <a href="{{ url_for('web.dashboard') }}" class="btn btn-primary">Return to Dashboard</a>
+</div>
+{% endblock %}
