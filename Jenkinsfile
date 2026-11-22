@@ -24,22 +24,6 @@ pipeline {
             }
         }
 
-        stage('Validate') {
-            steps {
-                echo 'Validating Python code syntax and Docker Compose configuration...'
-                sh '''
-                    docker run --rm -v "$(pwd):/app" -w /app python:3.11-slim python -m compileall -q .
-
-                    MYSQL_ROOT_PASSWORD=ci_dummy_root_pw \
-                    DB_NAME=student_db \
-                    DB_USER=student_app \
-                    DB_PASSWORD=ci_dummy_app_pw \
-                    SECRET_KEY=ci_dummy_secret_key \
-                    docker compose config -q
-                '''
-            }
-        }
-
         stage('Build Docker Image') {
             steps {
                 script {
@@ -50,6 +34,30 @@ pipeline {
                         docker build -t ${IMAGE_NAME}:${BUILD_NUMBER} -t ${IMAGE_NAME}:${shortCommit} -t ${IMAGE_NAME}:latest .
                     """
                 }
+            }
+        }
+
+        stage('Validate') {
+            steps {
+                echo 'Validating Docker Compose configuration and Python code syntax...'
+                sh '''
+                    # Validate Compose configuration syntax
+                    MYSQL_ROOT_PASSWORD=ci_dummy_root_pw \
+                    DB_NAME=student_db \
+                    DB_USER=student_app \
+                    DB_PASSWORD=ci_dummy_app_pw \
+                    SECRET_KEY=ci_dummy_secret_key \
+                    docker compose config -q
+
+                    # Validate Python syntax inside built container without bind mounts
+                    docker run --rm --entrypoint sh ${IMAGE_NAME}:${BUILD_NUMBER} -c '
+                        set -e
+                        COUNT=$(find /app -name "*.py" | wc -l)
+                        echo "Found ${COUNT} Python files to validate."
+                        python -m compileall -q /app
+                        echo "All ${COUNT} Python files passed syntax compilation."
+                    '
+                '''
             }
         }
 
