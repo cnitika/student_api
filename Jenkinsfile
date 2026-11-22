@@ -145,10 +145,7 @@ EOF
 
         stage('Deploy (demo)') {
             when {
-                allOf {
-                    branch 'main'
-                    expression { return params.DEPLOY == true }
-                }
+                expression { params.DEPLOY && (env.GIT_BRANCH == 'origin/main' || env.GIT_BRANCH == 'main') }
             }
             steps {
                 withCredentials([file(credentialsId: 'student-demo-env', variable: 'DEMO_ENV_FILE')]) {
@@ -157,24 +154,33 @@ EOF
                         docker compose -p student-demo --env-file "${DEMO_ENV_FILE}" up -d --build
 
                         # Verify deployment health
-                        echo "Verifying /health endpoint on demo stack..."
-                        retries=20
+                        echo "Verifying student-demo container health..."
+                        retries=30
                         healthy=false
                         while [ $retries -gt 0 ]; do
-                            if curl -sf http://localhost:5000/health > /dev/null 2>&1 || \
-                               docker run --rm --network student-demo_default python:3.11-slim python -c "import urllib.request; urllib.request.urlopen('http://web:5000/health')" > /dev/null 2>&1; then
-                                echo "Demo deployment is healthy and responding successfully."
+                            status=$(docker inspect --format='{{.State.Health.Status}}' student-demo-web-1 2>/dev/null || true)
+                            if [ "$status" = "healthy" ]; then
+                                echo "Demo container student-demo-web-1 is healthy."
+                                healthy=true
+                                break
+                            fi
+                            if docker exec student-demo-web-1 python -c "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://localhost:5000/health').getcode() == 200 else 1)" >/dev/null 2>&1; then
+                                echo "Demo container student-demo-web-1 responded 200 on /health directly."
                                 healthy=true
                                 break
                             fi
                             retries=$((retries - 1))
-                            sleep 3
+                            sleep 2
                         done
 
                         if [ "$healthy" != "true" ]; then
-                            echo "Deployment healthcheck failed!"
+                            echo "Deployment healthcheck failed: container student-demo-web-1 status is '${status}'"
+                            docker compose -p student-demo --env-file "${DEMO_ENV_FILE}" logs web --tail 50
                             exit 1
                         fi
+
+                        # Verify /health response payload directly from the container
+                        docker exec student-demo-web-1 python -c "import urllib.request; resp = urllib.request.urlopen('http://localhost:5000/health'); print('Health check payload:', resp.read().decode())"
                     '''
                 }
             }
