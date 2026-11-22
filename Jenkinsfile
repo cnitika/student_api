@@ -68,7 +68,9 @@ pipeline {
             steps {
                 echo "Running integration test suite in isolated CI environment: ${CI_PROJECT}..."
                 sh '''
-                    # Generate ephemeral runtime secrets for isolated CI test execution
+                    # Temporarily disable shell tracing so generated secrets are not printed
+                    set +x
+                    echo "Generating isolated CI credentials..."
                     CI_ROOT_PW=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
                     CI_APP_PW=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
                     CI_SECRET=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
@@ -84,6 +86,8 @@ DB_PASSWORD=${CI_APP_PW}
 SECRET_KEY=${CI_SECRET}
 FLASK_DEBUG=0
 EOF
+                    # Re-enable shell tracing
+                    set -x
 
                     # Override web ports for CI to guarantee no host port conflicts
                     cat <<EOF > docker-compose.ci.yml
