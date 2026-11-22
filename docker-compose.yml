@@ -1,0 +1,38 @@
+services:
+  db:
+    build: ./database
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD environment variable is required}
+      MYSQL_DATABASE: ${DB_NAME:?DB_NAME environment variable is required}
+      MYSQL_USER: ${DB_USER:?DB_USER environment variable is required}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD environment variable is required}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p$$MYSQL_ROOT_PASSWORD"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
+
+  web:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USER: ${DB_USER:?DB_USER environment variable is required}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD environment variable is required}
+      DB_NAME: ${DB_NAME:?DB_NAME environment variable is required}
+      TEST_DB_NAME: ${TEST_DB_NAME:-student_test_db}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY environment variable is required}
+      FLASK_DEBUG: ${FLASK_DEBUG:-0}
+    ports:
+      - "${WEB_PORT:-5000}:5000"
+
+volumes:
+  mysql_data:
