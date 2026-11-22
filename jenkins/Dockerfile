@@ -29,5 +29,5 @@ RUN jenkins-plugin-cli --plugins \
     git \
     credentials-binding \
     junit \
-    timestamps \
+    timestamper \
     pipeline-stage-view

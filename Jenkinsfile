@@ -75,10 +75,16 @@ DB_USER=student_app
 DB_PASSWORD=${CI_APP_PW}
 SECRET_KEY=${CI_SECRET}
 FLASK_DEBUG=0
-WEB_PORT=5000
 EOF
 
-                    docker compose -p ${CI_PROJECT} --env-file .env.ci up -d --build
+                    # Override web ports for CI to guarantee no host port conflicts
+                    cat <<EOF > docker-compose.ci.yml
+services:
+  web:
+    ports: !reset []
+EOF
+
+                    docker compose -p ${CI_PROJECT} -f docker-compose.yml -f docker-compose.ci.yml --env-file .env.ci up -d --build
 
                     # Wait for database container to report healthy
                     echo "Waiting for CI database to become healthy..."
@@ -93,14 +99,14 @@ EOF
                     done
 
                     # Run tests inside web container with JUnit XML reporting
-                    docker compose -p ${CI_PROJECT} --env-file .env.ci exec -T web pytest -v --junitxml=junit-results.xml
+                    docker compose -p ${CI_PROJECT} -f docker-compose.yml -f docker-compose.ci.yml --env-file .env.ci exec -T web pytest -v --junitxml=junit-results.xml
 
                     # Copy results out of container for Jenkins publishing
                     docker cp ${CI_PROJECT}-web-1:/app/junit-results.xml ./junit-results.xml || true
 
-                    # Clean up CI environment and remove temporary .env.ci
-                    docker compose -p ${CI_PROJECT} --env-file .env.ci down -v
-                    rm -f .env.ci
+                    # Clean up CI environment and remove temporary files
+                    docker compose -p ${CI_PROJECT} -f docker-compose.yml -f docker-compose.ci.yml --env-file .env.ci down -v
+                    rm -f .env.ci docker-compose.ci.yml
                 '''
                 junit testResults: 'junit-results.xml', allowEmptyResults: true
             }
@@ -168,7 +174,7 @@ EOF
             sh '''
                 docker compose -p student-ci-${BUILD_NUMBER} down -v 2>/dev/null || true
                 docker image prune -f 2>/dev/null || true
-                rm -f .env.ci
+                rm -f .env.ci docker-compose.ci.yml
             '''
         }
         success {
