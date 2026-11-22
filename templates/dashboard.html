@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Student Marks Management System{% endblock %}
+{% block page_heading %}Academic Performance Dashboard{% endblock %}
+
+{% block content %}
+<!-- Real Statistics Cards -->
+<section class="stat-grid">
+    <div class="stat-card">
+        <div class="stat-label">Total Students</div>
+        <div class="stat-value">{{ stats.total_students }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Total Subjects</div>
+        <div class="stat-value">{{ stats.total_subjects }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Students with Results</div>
+        <div class="stat-value">{{ stats.students_with_results }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Passed</div>
+        <div class="stat-value" style="color: var(--success-badge);">{{ stats.pass_count }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Failed</div>
+        <div class="stat-value" style="color: var(--danger-badge);">{{ stats.fail_count }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Average Percentage</div>
+        <div class="stat-value">
+            {% if stats.average_percentage is not none %}
+                {{ "%.2f"|format(stats.average_percentage) }}%
+            {% else %}
+                N/A
+            {% endif %}
+        </div>
+    </div>
+</section>
+
+<!-- Recent Students Table -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Recently Registered Students</h2>
+        <a href="{{ url_for('web.add_student_page') }}" class="btn btn-primary btn-sm">+ Add New Student</a>
+    </div>
+
+    {% if stats.recent_students %}
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Roll Number</th>
+                        <th>Student Name</th>
+                        <th>Department</th>
+                        <th>Course</th>
+                        <th>Semester</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for student in stats.recent_students %}
+                        <tr>
+                            <td><strong>{{ student.roll_no }}</strong></td>
+                            <td>{{ student.student_name }}</td>
+                            <td>{{ student.department }}</td>
+                            <td>{{ student.course }}</td>
+                            <td>Sem {{ student.semester }}</td>
+                            <td>
+                                <a href="{{ url_for('web.student_marks_page', student_id=student.id) }}" class="btn btn-secondary btn-sm">Marks</a>
+                                <a href="{{ url_for('web.student_result_page', student_id=student.id) }}" class="btn btn-primary btn-sm">Result</a>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <div class="empty-state">
+            <p>No students registered yet.</p>
+            <p style="margin-top: 8px;"><a href="{{ url_for('web.add_student_page') }}" class="btn btn-primary btn-sm">Register First Student</a></p>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

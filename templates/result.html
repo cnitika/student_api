@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+
+{% block title %}Academic Result - {{ result.student.student_name }}{% endblock %}
+{% block page_heading %}Official Academic Result Sheet{% endblock %}
+
+{% block content %}
+<div class="card" id="printable-result-sheet">
+    <!-- Header for Print & Display -->
+    <div class="result-header">
+        <h2>ACADEMIC PERFORMANCE STATEMENT</h2>
+        <p style="color: var(--text-muted); font-size: 13px; margin-top: 4px;">Student Marks Management System &bull; Semester Examination</p>
+    </div>
+
+    <!-- Student Metadata Grid -->
+    <div class="result-meta-grid">
+        <div class="meta-item">
+            <div class="meta-label">Student Name</div>
+            <div class="meta-value">{{ result.student.student_name }}</div>
+        </div>
+        <div class="meta-item">
+            <div class="meta-label">Roll Number</div>
+            <div class="meta-value">{{ result.student.roll_no }}</div>
+        </div>
+        <div class="meta-item">
+            <div class="meta-label">Department</div>
+            <div class="meta-value">{{ result.student.department }}</div>
+        </div>
+        <div class="meta-item">
+            <div class="meta-label">Course Degree</div>
+            <div class="meta-value">{{ result.student.course }}</div>
+        </div>
+        <div class="meta-item">
+            <div class="meta-label">Academic Year</div>
+            <div class="meta-value">{{ result.student.academic_year }}</div>
+        </div>
+        <div class="meta-item">
+            <div class="meta-label">Semester Evaluated</div>
+            <div class="meta-value">Semester {{ result.semester }}</div>
+        </div>
+    </div>
+
+    {% if result.status == "Result Not Available" %}
+        <div class="empty-state">
+            <div class="badge badge-na" style="font-size: 16px; padding: 6px 14px; margin-bottom: 12px;">Result Not Available</div>
+            <p>No subject marks have been recorded for Semester {{ result.semester }}.</p>
+            <p class="no-print" style="margin-top: 12px;">
+                <a href="{{ url_for('web.marks_entry_page', student_id=result.student.id) }}" class="btn btn-primary btn-sm">Enter Subject Marks</a>
+            </p>
+        </div>
+    {% else %}
+        <!-- Subject Marks Table -->
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Subject Code</th>
+                        <th>Subject Name</th>
+                        <th style="text-align: right;">Max Marks</th>
+                        <th style="text-align: right;">Marks Obtained</th>
+                        <th style="text-align: right;">Percentage</th>
+                        <th style="text-align: center;">Result</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for sub in result.subjects %}
+                        <tr>
+                            <td><strong>{{ sub.subject_code }}</strong></td>
+                            <td>{{ sub.subject_name }}</td>
+                            <td style="text-align: right;">{{ "%.2f"|format(sub.max_marks) }}</td>
+                            <td style="text-align: right;"><strong>{{ "%.2f"|format(sub.marks_obtained) }}</strong></td>
+                            <td style="text-align: right;">{{ "%.2f"|format(sub.percentage) }}%</td>
+                            <td style="text-align: center;">
+                                {% if sub.status == 'PASS' %}
+                                    <span class="badge badge-pass">PASS</span>
+                                {% else %}
+                                    <span class="badge badge-fail">FAIL</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Overall Result Summary Box -->
+        <div class="result-summary-box">
+            <div class="summary-item">
+                <div class="num">{{ "%.2f"|format(result.total_obtained) }} / {{ "%.2f"|format(result.total_max) }}</div>
+                <div class="lbl">Total Marks</div>
+            </div>
+            <div class="summary-item">
+                <div class="num">{{ "%.2f"|format(result.percentage) }}%</div>
+                <div class="lbl">Aggregate</div>
+            </div>
+            <div class="summary-item">
+                <div class="num">{{ result.grade }}</div>
+                <div class="lbl">Grade Awarded</div>
+            </div>
+            <div class="summary-item">
+                <div class="num">
+                    {% if result.status == 'PASS' %}
+                        <span style="color: var(--success-badge);">PASS</span>
+                    {% else %}
+                        <span style="color: var(--danger-badge);">FAIL</span>
+                    {% endif %}
+                </div>
+                <div class="lbl">Overall Result</div>
+            </div>
+        </div>
+
+        <!-- Failed Subjects Detail Notice if any -->
+        {% if result.failed_subjects %}
+            <div style="margin-top: 20px; padding: 14px; background-color: var(--danger-bg); border: 1px solid var(--danger-border); border-radius: var(--radius-md); color: var(--danger-text);">
+                <strong>Backlog / Failed Subjects (Below 35% Threshold):</strong>
+                <ul style="margin-top: 6px; padding-left: 20px;">
+                    {% for f in result.failed_subjects %}
+                        <li>{{ f.subject_code }} - {{ f.subject_name }} (Scored {{ f.marks_obtained }} / {{ f.max_marks }}, Required: {{ f.required_marks }})</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        {% endif %}
+    {% endif %}
+
+    <!-- Actions / Print -->
+    <div class="no-print" style="margin-top: 28px; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-color); padding-top: 20px;">
+        <a href="{{ url_for('web.students_list') }}" class="btn btn-secondary">Back to Students</a>
+        <div style="display: flex; gap: 10px;">
+            <a href="{{ url_for('web.marks_entry_page', student_id=result.student.id) }}" class="btn btn-secondary">Manage Marks</a>
+            {% if result.status != "Result Not Available" %}
+                <button type="button" class="btn btn-primary btn-print">Print Result Sheet</button>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

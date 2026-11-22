@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+.git
+.venv
+venv
+audit_venv
+__pycache__
+*.pyc
+.pytest_cache
+docs/screenshots
+jenkins_home

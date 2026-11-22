@@ -1,4 +1,11 @@
 venv/
+.venv/
+audit_venv/
 __pycache__/
 *.pyc
+.pytest_cache/
 .env
+.env.*
+!.env.example
+jenkins_home/
+junit-results.xml
